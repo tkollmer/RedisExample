@@ -1,3 +1,25 @@
+// Redis node control — defined globally before IIFE so onclick handlers always work
+function redisAction(action, node) {
+    var url;
+    if (action === 'stop-all') {
+        url = '/api/redis/stop-all';
+    } else if (action === 'start-all') {
+        url = '/api/redis/start-all';
+    } else {
+        url = '/api/redis/' + action + '/' + node;
+    }
+    // Disable all redis buttons while request is in flight
+    var btns = document.querySelectorAll('.node-btn');
+    btns.forEach(function (b) { b.disabled = true; b.style.opacity = '0.5'; });
+    fetch(url, { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { console.log('Redis ' + action + ':', data); })
+        .catch(function (e) { console.error('Redis action failed:', e); })
+        .finally(function () {
+            btns.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; });
+        });
+}
+
 (function () {
     'use strict';
 
@@ -374,6 +396,23 @@
     }
 
     function handleMessage(msg) {
+        // Status messages always processed, even when paused
+        switch (msg.type) {
+            case 'redis-status':
+                if (msg.data && Array.isArray(msg.data)) {
+                    updateRedisStatus(msg.data);
+                }
+                return;
+            case 'throughput':
+                if (msg.data) {
+                    var epsEl = document.getElementById('entities-per-sec');
+                    var teEl = document.getElementById('total-entities');
+                    if (epsEl) epsEl.textContent = msg.data.entitiesPerSec || 0;
+                    if (teEl) teEl.textContent = msg.data.totalEntities || 0;
+                }
+                return;
+        }
+        // Signal messages skipped when paused
         if (paused) return;
         switch (msg.type) {
             case 'blocks':
@@ -423,19 +462,6 @@
                     queueDepthEl.textContent = redisEntities.length;
                     mergedCountEl.textContent = redisEntities.length;
                     renderMergedCards();
-                }
-                break;
-            case 'redis-status':
-                if (msg.data && Array.isArray(msg.data)) {
-                    updateRedisStatus(msg.data);
-                }
-                break;
-            case 'throughput':
-                if (msg.data) {
-                    var epsEl = document.getElementById('entities-per-sec');
-                    var teEl = document.getElementById('total-entities');
-                    if (epsEl) epsEl.textContent = msg.data.entitiesPerSec || 0;
-                    if (teEl) teEl.textContent = msg.data.totalEntities || 0;
                 }
                 break;
         }
@@ -644,22 +670,6 @@
     window.addEventListener('mouseup', function () {
         if (hDragging) { hDragging = false; resizeHandle.classList.remove('active'); }
     });
-
-    // === Redis node control ===
-    window.redisAction = function (action, node) {
-        var url;
-        if (action === 'stop-all') {
-            url = '/api/redis/stop-all';
-        } else if (action === 'start-all') {
-            url = '/api/redis/start-all';
-        } else {
-            url = '/api/redis/' + action + '/' + node;
-        }
-        fetch(url, { method: 'POST' })
-            .then(function (r) { return r.json(); })
-            .then(function (data) { console.log('Redis ' + action + ':', data); })
-            .catch(function (e) { console.error('Redis action failed:', e); });
-    };
 
     // Start
     connectWs();
