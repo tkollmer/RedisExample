@@ -30,7 +30,7 @@ public class SettingsController {
         m.put("maxBlockDurationMs", signalGenerator.getMaxBlockDuration());
         m.put("minBlockWidth", signalGenerator.getMinBlockWidth());
         m.put("maxBlockWidth", signalGenerator.getMaxBlockWidth());
-        m.put("detectorWindowWidth", detectorService.getWindowWidth());
+        m.put("detectorWindowWidthPercent", detectorService.getWindowWidthPercent());
         m.put("detectorOverlapPercent", detectorService.getOverlapPercent());
         m.put("detectorTimeWindowMs", detectorService.getTimeWindowMs());
         m.put("detectionProbability", detectorService.getDetectionProbability());
@@ -59,8 +59,8 @@ public class SettingsController {
         if (settings.containsKey("maxBlockWidth")) {
             signalGenerator.setMaxBlockWidth(((Number) settings.get("maxBlockWidth")).doubleValue());
         }
-        if (settings.containsKey("detectorWindowWidth")) {
-            detectorService.setWindowWidth(((Number) settings.get("detectorWindowWidth")).intValue());
+        if (settings.containsKey("detectorWindowWidthPercent")) {
+            detectorService.setWindowWidthPercent(((Number) settings.get("detectorWindowWidthPercent")).intValue());
         }
         if (settings.containsKey("detectorOverlapPercent")) {
             detectorService.setOverlapPercent(((Number) settings.get("detectorOverlapPercent")).intValue());

@@ -567,7 +567,7 @@ function redisAction(action, node) {
         maxDuration: { el: document.getElementById('s-maxDuration'),  val: document.getElementById('v-maxDuration'),  key: 'maxBlockDurationMs' },
         minBlockW:   { el: document.getElementById('s-minBlockWidth'),val: document.getElementById('v-minBlockWidth'),key: 'minBlockWidth' },
         maxBlockW:   { el: document.getElementById('s-maxBlockWidth'),val: document.getElementById('v-maxBlockWidth'),key: 'maxBlockWidth' },
-        detWidth:    { el: document.getElementById('s-detWidth'),     val: document.getElementById('v-detWidth'),     key: 'detectorWindowWidth' },
+        detWidth:    { el: document.getElementById('s-detWidth'),     val: document.getElementById('v-detWidth'),     key: 'detectorWindowWidthPercent' },
         overlap:     { el: document.getElementById('s-overlap'),      val: document.getElementById('v-overlap'),      key: 'detectorOverlapPercent' },
         detTimeWin:  { el: document.getElementById('s-detTimeWin'),   val: document.getElementById('v-detTimeWin'),   key: 'detectorTimeWindowMs' },
         detProb:     { el: document.getElementById('s-detProb'),      val: document.getElementById('v-detProb'),      key: 'detectionProbability' },
@@ -627,7 +627,7 @@ function redisAction(action, node) {
             if (cfg.maxBlockDurationMs !== undefined)    { sliders.maxDuration.el.value = cfg.maxBlockDurationMs; sliders.maxDuration.val.textContent = cfg.maxBlockDurationMs; }
             if (cfg.minBlockWidth !== undefined)         { sliders.minBlockW.el.value = cfg.minBlockWidth; sliders.minBlockW.val.textContent = Math.round(cfg.minBlockWidth); }
             if (cfg.maxBlockWidth !== undefined)         { sliders.maxBlockW.el.value = cfg.maxBlockWidth; sliders.maxBlockW.val.textContent = Math.round(cfg.maxBlockWidth); }
-            if (cfg.detectorWindowWidth !== undefined)   { sliders.detWidth.el.value = cfg.detectorWindowWidth; sliders.detWidth.val.textContent = cfg.detectorWindowWidth; }
+            if (cfg.detectorWindowWidthPercent !== undefined) { sliders.detWidth.el.value = cfg.detectorWindowWidthPercent; sliders.detWidth.val.textContent = cfg.detectorWindowWidthPercent; }
             if (cfg.detectorOverlapPercent !== undefined) { sliders.overlap.el.value = cfg.detectorOverlapPercent; sliders.overlap.val.textContent = cfg.detectorOverlapPercent; }
             if (cfg.detectorTimeWindowMs !== undefined)  { sliders.detTimeWin.el.value = cfg.detectorTimeWindowMs; sliders.detTimeWin.val.textContent = cfg.detectorTimeWindowMs; }
             if (cfg.detectionProbability !== undefined)  { sliders.detProb.el.value = cfg.detectionProbability; sliders.detProb.val.textContent = cfg.detectionProbability; }

@@ -9,7 +9,7 @@ signal:
   retention-ms: 30000
 
 detector:
-  window-width: 10000
+  window-width-percent: 10
   overlap-percent: 50
   time-window-ms: 1000
   detection-probability: 100
