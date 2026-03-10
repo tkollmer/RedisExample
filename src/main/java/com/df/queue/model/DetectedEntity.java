@@ -3,7 +3,18 @@ package com.df.queue.model;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * An entity detected by the sliding window detector.
+ *
+ * <p>Created from a {@link SignalBlock} when the detector first identifies it.
+ * Entities are stored in Redis as hashes and may be merged with overlapping
+ * entities that share the same color, time proximity, and width overlap.
+ *
+ * <p>Entity IDs follow the format {@code E-xxxxxxxx} (8-char UUID prefix)
+ * for compact display in the UI.
+ */
 public class DetectedEntity {
+
     private String entityId;
     private long detectionTime;
     private long startTime;
@@ -14,8 +25,15 @@ public class DetectedEntity {
     private String color;
     private Map<String, String> metadata;
 
+    /** Default constructor for deserialization. */
     public DetectedEntity() {}
 
+    /**
+     * Creates a new entity from a detected signal block.
+     *
+     * @param block         the signal block that triggered detection
+     * @param detectionTime when the detection occurred (epoch millis)
+     */
     public DetectedEntity(SignalBlock block, long detectionTime) {
         this.entityId = "E-" + UUID.randomUUID().toString().substring(0, 8);
         this.detectionTime = detectionTime;
@@ -27,6 +45,8 @@ public class DetectedEntity {
         this.color = block.getColor();
         this.metadata = block.getMetadata();
     }
+
+    // ── Getters & Setters ───────────────────────────────────────────────
 
     public String getEntityId() { return entityId; }
     public void setEntityId(String entityId) { this.entityId = entityId; }

@@ -8,6 +8,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * Tracks entity throughput and broadcasts metrics to WebSocket clients.
+ *
+ * <p>Uses a simple sliding sample approach: every 1 second, computes the
+ * delta in entity count and derives entities/sec. Thread-safe via {@link AtomicLong}.
+ */
 @Service
 public class ThroughputService {
 
@@ -21,6 +27,7 @@ public class ThroughputService {
         this.wsHandler = wsHandler;
     }
 
+    /** Increments the global entity counter. Called by QueueService on each publish. */
     public void recordEntity() {
         entityCounter.incrementAndGet();
     }
@@ -29,6 +36,7 @@ public class ThroughputService {
         return entitiesPerSec;
     }
 
+    /** Computes entities/sec from the counter delta and broadcasts to all clients. */
     @Scheduled(fixedRate = 1000)
     public void computeAndBroadcast() {
         long now = System.currentTimeMillis();

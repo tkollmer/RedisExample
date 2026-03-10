@@ -12,6 +12,16 @@ import java.io.InputStreamReader;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Polls Docker containers to determine Redis node status and broadcasts to WebSocket clients.
+ *
+ * <p>Every 2 seconds, inspects each Redis container via {@code docker inspect} to check
+ * running state, then uses {@code docker exec redis-cli INFO replication} to determine
+ * the node's role (master/slave/down).
+ *
+ * <p>Requires the Docker socket to be mounted in the app container
+ * ({@code /var/run/docker.sock}).
+ */
 @Service
 public class RedisStatusService {
 
@@ -26,6 +36,7 @@ public class RedisStatusService {
         this.wsHandler = wsHandler;
     }
 
+    /** Polls all Redis containers and broadcasts their status. */
     @Scheduled(fixedRate = 2000)
     public void pollAndBroadcast() {
         List<Map<String, Object>> statuses = new ArrayList<>();
@@ -35,9 +46,17 @@ public class RedisStatusService {
         wsHandler.broadcast("redis-status", statuses);
     }
 
+    /**
+     * Inspects a single Redis container via Docker CLI.
+     *
+     * @param containerName Docker container name (e.g. "redis-master")
+     * @return map with keys: name, running, status, role
+     */
     private Map<String, Object> inspectNode(String containerName) {
         Map<String, Object> info = new LinkedHashMap<>();
         info.put("name", containerName);
+
+        // Check container running state via docker inspect
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     "docker", "inspect", "-f",
@@ -64,7 +83,7 @@ public class RedisStatusService {
             info.put("status", "error");
         }
 
-        // Get role
+        // Determine replication role via redis-cli INFO
         try {
             Boolean running = (Boolean) info.get("running");
             if (running != null && running) {
