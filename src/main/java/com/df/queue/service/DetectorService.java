@@ -4,14 +4,14 @@ import com.df.queue.model.DetectedEntity;
 import com.df.queue.model.EntityMessage;
 import com.df.queue.model.SignalBlock;
 import com.df.queue.web.SignalWebSocketHandler;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.*;
 
 @Service
 public class DetectorService {
@@ -44,9 +44,18 @@ public class DetectorService {
     // Current detector window position (for UI overlay)
     private double windowPosition = 0;
 
+    // Thread pool for parallel publish
+    private final ExecutorService publishPool = Executors.newFixedThreadPool(
+            Math.max(2, Runtime.getRuntime().availableProcessors()));
+
     public DetectorService(QueueService queueService, SignalWebSocketHandler wsHandler) {
         this.queueService = queueService;
         this.wsHandler = wsHandler;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        publishPool.shutdownNow();
     }
 
     public void detect(List<SignalBlock> currentBlocks, long now) {
@@ -57,6 +66,9 @@ public class DetectorService {
         List<SignalBlock> inWindow = currentBlocks.stream()
                 .filter(b -> b.getStartTime() >= timeThreshold)
                 .toList();
+
+        // Collect new entities to publish in parallel
+        List<DetectedEntity> newEntities = new ArrayList<>();
 
         // Slide the detector window across the width axis
         for (double pos = 0; pos + windowWidth <= maxWidth; pos += step) {
@@ -78,13 +90,27 @@ public class DetectorService {
                         DetectedEntity entity = new DetectedEntity(block, now);
                         blockToEntity.put(block.getId(), entity.getEntityId());
                         activeEntities.put(entity.getEntityId(), entity);
-
-                        // Publish to Redis queue
-                        EntityMessage msg = queueService.publish(entity);
-                        wsHandler.broadcast("entity", msg);
+                        newEntities.add(entity);
                     }
                 }
             }
+        }
+
+        // Publish all new entities in parallel
+        if (!newEntities.isEmpty()) {
+            List<CompletableFuture<Void>> futures = new ArrayList<>(newEntities.size());
+            for (DetectedEntity entity : newEntities) {
+                futures.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        EntityMessage msg = queueService.publish(entity);
+                        wsHandler.broadcast("entity", msg);
+                    } catch (Exception e) {
+                        log.warn("Parallel publish failed for {}: {}", entity.getEntityId(), e.getMessage());
+                    }
+                }, publishPool));
+            }
+            // Wait for all publishes to complete before proceeding
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
 
         // Update window position for UI (sweep animation)

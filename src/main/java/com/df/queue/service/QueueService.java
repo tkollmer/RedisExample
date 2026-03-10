@@ -7,7 +7,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -76,7 +79,7 @@ public class QueueService {
                 merged.setWidthEnd(Math.max(merged.getWidthEnd(), entity.getWidthEnd()));
                 merged.setAmplitude(Math.max(merged.getAmplitude(), entity.getAmplitude()));
 
-                // Update in Redis
+                // Update in Redis (pipelined)
                 saveEntity(merged, slotKey);
                 log.debug("Merged entity {} into {}", entity.getEntityId(), merged.getEntityId());
 
@@ -94,7 +97,7 @@ public class QueueService {
                 return new EntityMessage("merged", merged);
             }
 
-            // Insert as new entity
+            // Insert as new entity (pipelined)
             saveEntity(entity, slotKey);
             log.debug("New entity {} at width [{}, {}]",
                     entity.getEntityId(), entity.getWidthStart(), entity.getWidthEnd());
@@ -106,10 +109,10 @@ public class QueueService {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private void saveEntity(DetectedEntity entity, String slotKey) {
         String entityKey = "entity:" + entity.getEntityId();
 
-        // Store entity hash
         Map<String, Object> hash = new HashMap<>();
         hash.put("entityId", entity.getEntityId());
         hash.put("detectionTime", String.valueOf(entity.getDetectionTime()));
@@ -120,68 +123,105 @@ public class QueueService {
         hash.put("amplitude", String.valueOf(entity.getAmplitude()));
         hash.put("color", entity.getColor() != null ? entity.getColor() : "green");
 
-        redisTemplate.opsForHash().putAll(entityKey, hash);
-        redisTemplate.expire(entityKey, entityTtlSeconds, TimeUnit.SECONDS);
-
-        // Add to sorted set (score = widthStart for width-based lookups)
-        redisTemplate.opsForZSet().add(slotKey, entity.getEntityId(), entity.getWidthStart());
-        redisTemplate.expire(slotKey, entityTtlSeconds, TimeUnit.SECONDS);
+        // Pipeline all writes into a single round-trip
+        redisTemplate.executePipelined(new SessionCallback<Object>() {
+            @Override
+            public Object execute(RedisOperations operations) throws DataAccessException {
+                operations.opsForHash().putAll(entityKey, hash);
+                operations.expire(entityKey, entityTtlSeconds, TimeUnit.SECONDS);
+                operations.opsForZSet().add(slotKey, entity.getEntityId(), entity.getWidthStart());
+                operations.expire(slotKey, entityTtlSeconds, TimeUnit.SECONDS);
+                return null;
+            }
+        });
     }
 
+    @SuppressWarnings("unchecked")
     private DetectedEntity findMergeCandidate(DetectedEntity incoming, long timeSlot) {
-        // Search in current and adjacent time slots
-        for (long ts = timeSlot - 1; ts <= timeSlot + 1; ts++) {
-            String slotKey = "entities:" + ts;
-            Set<Object> members = redisTemplate.opsForZSet().range(slotKey, 0, -1);
-            if (members == null) continue;
+        // Pipeline: fetch all 3 slot sorted sets in one round-trip
+        String[] slotKeys = {
+                "entities:" + (timeSlot - 1),
+                "entities:" + timeSlot,
+                "entities:" + (timeSlot + 1)
+        };
 
-            for (Object memberId : members) {
-                String entityKey = "entity:" + memberId;
-                Map<Object, Object> hash = redisTemplate.opsForHash().entries(entityKey);
-                if (hash.isEmpty()) continue;
-
-                try {
-                    double existWidthStart = Double.parseDouble((String) hash.get("widthStart"));
-                    double existWidthEnd = Double.parseDouble((String) hash.get("widthEnd"));
-                    long existStartTime = Long.parseLong((String) hash.get("startTime"));
-                    long existEndTime = Long.parseLong((String) hash.get("endTime"));
-                    String existColor = (String) hash.get("color");
-
-                    // Only merge same-color entities
-                    String incomingColor = incoming.getColor() != null ? incoming.getColor() : "green";
-                    if (!incomingColor.equals(existColor)) {
-                        continue;
-                    }
-
-                    // Check time overlap
-                    if (Math.abs(incoming.getStartTime() - existStartTime) > mergeTimeThresholdMs) {
-                        continue;
-                    }
-
-                    // Check width overlap
-                    double overlapStart = Math.max(incoming.getWidthStart(), existWidthStart);
-                    double overlapEnd = Math.min(incoming.getWidthEnd(), existWidthEnd);
-                    double overlap = Math.max(0, overlapEnd - overlapStart);
-                    double incomingWidth = incoming.getWidthEnd() - incoming.getWidthStart();
-                    double existingWidth = existWidthEnd - existWidthStart;
-                    double minWidth = Math.min(incomingWidth, existingWidth);
-
-                    if (minWidth > 0 && (overlap / minWidth) * 100 >= mergeWidthOverlapPercent) {
-                        // Found merge candidate — reconstruct entity
-                        DetectedEntity existing = new DetectedEntity();
-                        existing.setEntityId((String) hash.get("entityId"));
-                        existing.setDetectionTime(Long.parseLong((String) hash.get("detectionTime")));
-                        existing.setStartTime(existStartTime);
-                        existing.setEndTime(existEndTime);
-                        existing.setWidthStart(existWidthStart);
-                        existing.setWidthEnd(existWidthEnd);
-                        existing.setAmplitude(Double.parseDouble((String) hash.get("amplitude")));
-                        existing.setColor(existColor);
-                        return existing;
-                    }
-                } catch (Exception e) {
-                    log.warn("Error checking merge candidate: {}", e.getMessage());
+        List<Object> slotResults = redisTemplate.executePipelined(new SessionCallback<Object>() {
+            @Override
+            public Object execute(RedisOperations operations) throws DataAccessException {
+                for (String sk : slotKeys) {
+                    operations.opsForZSet().range(sk, 0, -1);
                 }
+                return null;
+            }
+        });
+
+        // Collect all unique member IDs
+        Set<Object> allMembers = new LinkedHashSet<>();
+        for (Object result : slotResults) {
+            if (result instanceof Set) {
+                allMembers.addAll((Set<Object>) result);
+            }
+        }
+        if (allMembers.isEmpty()) return null;
+
+        // Pipeline: fetch all candidate entity hashes in one round-trip
+        List<String> entityKeys = new ArrayList<>(allMembers.size());
+        for (Object memberId : allMembers) {
+            entityKeys.add("entity:" + memberId);
+        }
+
+        List<Object> hashResults = redisTemplate.executePipelined(new SessionCallback<Object>() {
+            @Override
+            public Object execute(RedisOperations operations) throws DataAccessException {
+                for (String ek : entityKeys) {
+                    operations.opsForHash().entries(ek);
+                }
+                return null;
+            }
+        });
+
+        // Check each candidate for merge eligibility
+        String incomingColor = incoming.getColor() != null ? incoming.getColor() : "green";
+
+        for (Object hashResult : hashResults) {
+            if (!(hashResult instanceof Map)) continue;
+            Map<Object, Object> hash = (Map<Object, Object>) hashResult;
+            if (hash.isEmpty()) continue;
+
+            try {
+                String existColor = (String) hash.get("color");
+                if (!incomingColor.equals(existColor)) continue;
+
+                double existWidthStart = Double.parseDouble((String) hash.get("widthStart"));
+                double existWidthEnd = Double.parseDouble((String) hash.get("widthEnd"));
+                long existStartTime = Long.parseLong((String) hash.get("startTime"));
+
+                // Check time overlap
+                if (Math.abs(incoming.getStartTime() - existStartTime) > mergeTimeThresholdMs) continue;
+
+                // Check width overlap
+                double overlapStart = Math.max(incoming.getWidthStart(), existWidthStart);
+                double overlapEnd = Math.min(incoming.getWidthEnd(), existWidthEnd);
+                double overlap = Math.max(0, overlapEnd - overlapStart);
+                double incomingWidth = incoming.getWidthEnd() - incoming.getWidthStart();
+                double existingWidth = existWidthEnd - existWidthStart;
+                double minWidth = Math.min(incomingWidth, existingWidth);
+
+                if (minWidth > 0 && (overlap / minWidth) * 100 >= mergeWidthOverlapPercent) {
+                    long existEndTime = Long.parseLong((String) hash.get("endTime"));
+                    DetectedEntity existing = new DetectedEntity();
+                    existing.setEntityId((String) hash.get("entityId"));
+                    existing.setDetectionTime(Long.parseLong((String) hash.get("detectionTime")));
+                    existing.setStartTime(existStartTime);
+                    existing.setEndTime(existEndTime);
+                    existing.setWidthStart(existWidthStart);
+                    existing.setWidthEnd(existWidthEnd);
+                    existing.setAmplitude(Double.parseDouble((String) hash.get("amplitude")));
+                    existing.setColor(existColor);
+                    return existing;
+                }
+            } catch (Exception e) {
+                log.warn("Error checking merge candidate: {}", e.getMessage());
             }
         }
         return null;
@@ -190,7 +230,6 @@ public class QueueService {
     @Scheduled(fixedRate = 5000)
     public void cleanup() {
         try {
-            // Find and remove expired slot keys
             Set<String> keys = redisTemplate.keys("entities:*");
             if (keys == null) return;
             long now = System.currentTimeMillis() / 1000;
@@ -198,7 +237,6 @@ public class QueueService {
                 try {
                     long slot = Long.parseLong(key.split(":")[1]);
                     if (now - slot > entityTtlSeconds) {
-                        // Remove all entity hashes in this slot
                         Set<Object> members = redisTemplate.opsForZSet().range(key, 0, -1);
                         if (members != null) {
                             for (Object m : members) {
@@ -229,12 +267,29 @@ public class QueueService {
         try {
             Set<String> keys = redisTemplate.keys("entity:*");
             if (keys == null) return result;
-            for (String key : keys) {
-                Map<Object, Object> hash = redisTemplate.opsForHash().entries(key);
-                if (!hash.isEmpty()) {
-                    Map<String, String> entry = new HashMap<>();
-                    hash.forEach((k, v) -> entry.put(k.toString(), v.toString()));
-                    result.add(entry);
+
+            // Pipeline all hash reads
+            List<String> keyList = new ArrayList<>(keys);
+            List<Object> hashResults = redisTemplate.executePipelined(new SessionCallback<Object>() {
+                @Override
+                @SuppressWarnings("unchecked")
+                public Object execute(RedisOperations operations) throws DataAccessException {
+                    for (String key : keyList) {
+                        operations.opsForHash().entries(key);
+                    }
+                    return null;
+                }
+            });
+
+            for (Object hashResult : hashResults) {
+                if (hashResult instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<Object, Object> hash = (Map<Object, Object>) hashResult;
+                    if (!hash.isEmpty()) {
+                        Map<String, String> entry = new HashMap<>();
+                        hash.forEach((k, v) -> entry.put(k.toString(), v.toString()));
+                        result.add(entry);
+                    }
                 }
             }
         } catch (Exception e) {

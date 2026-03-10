@@ -107,7 +107,7 @@ Since our entity queue fits in a single node's memory, Sentinel gives us failove
 ```
 1. Master goes down (you click STOP)
     │
-2. Sentinels detect failure (5 second down-after-milliseconds)
+2. Sentinels detect failure (1 second down-after-milliseconds)
     │  Each sentinel independently marks master as SDOWN (subjectively down)
     │
 3. Quorum reached (2 of 3 sentinels agree)
@@ -131,10 +131,10 @@ Since our entity queue fits in a single node's memory, Sentinel gives us failove
     ReadFrom.REPLICA_PREFERRED routes reads to available replicas
 ```
 
-**Timing**: With our demo settings, failover completes in ~10-15 seconds:
-- 5s detection (`down-after-milliseconds`)
-- 10s max failover timeout
-- Near-instant Lettuce reconnection
+**Timing**: With our aggressive demo settings, failover completes in ~2-4 seconds:
+- 1s detection (`down-after-milliseconds`)
+- 3s max failover timeout
+- Near-instant Lettuce reconnection (auto-reconnect with 2s command timeout)
 
 ### Read Distribution
 

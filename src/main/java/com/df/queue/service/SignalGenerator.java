@@ -143,7 +143,7 @@ public class SignalGenerator {
 
     public long getTickIntervalMs() { return tickIntervalMs; }
     public void setTickIntervalMs(long v) {
-        long newVal = Math.max(10, Math.min(1000, v));
+        long newVal = Math.max(1, Math.min(1000, v));
         if (newVal != tickIntervalMs) {
             this.tickIntervalMs = newVal;
             reschedule();

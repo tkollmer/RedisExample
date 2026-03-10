@@ -1,12 +1,12 @@
 package com.df.queue.config;
 
+import io.lettuce.core.ClientOptions;
 import io.lettuce.core.ReadFrom;
+import io.lettuce.core.TimeoutOptions;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
-import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
-import org.springframework.data.redis.connection.RedisSentinelConfiguration;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
@@ -20,7 +20,12 @@ public class RedisConfig {
     public LettuceClientConfiguration lettuceClientConfiguration() {
         return LettuceClientConfiguration.builder()
                 .readFrom(ReadFrom.REPLICA_PREFERRED)
-                .commandTimeout(Duration.ofSeconds(3))
+                .commandTimeout(Duration.ofSeconds(2))
+                .clientOptions(ClientOptions.builder()
+                        .autoReconnect(true)
+                        .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
+                        .timeoutOptions(TimeoutOptions.enabled(Duration.ofSeconds(2)))
+                        .build())
                 .build();
     }
 
