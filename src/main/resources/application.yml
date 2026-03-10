@@ -1,0 +1,31 @@
+signal:
+  tick-interval-ms: 100
+  max-width: 10000
+  max-blocks-per-tick: 50
+  min-block-duration-ms: 500
+  max-block-duration-ms: 5000
+  min-block-width: 20
+  max-block-width: 300
+  retention-ms: 30000
+
+detector:
+  window-width: 10000
+  overlap-percent: 50
+  time-window-ms: 1000
+  detection-probability: 100
+
+queue:
+  entity-ttl-seconds: 30
+  merge-time-threshold-ms: 1000
+  merge-width-overlap-percent: 50
+
+spring:
+  data:
+    redis:
+      sentinel:
+        master: mymaster
+        nodes: localhost:26379,localhost:26380,localhost:26381
+      timeout: 3000ms
+
+redis:
+  nodes: redis-master,redis-replica-1,redis-replica-2
