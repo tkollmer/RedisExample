@@ -138,6 +138,8 @@
         }
         .node-role.master { color: #f80; }
         .node-role.slave { color: #08f; }
+        .node-role.active { color: #0f0; }
+        .node-role.standby { color: #f80; }
         .node-btn {
             background: #222;
             border: 1px solid #555;
@@ -377,6 +379,12 @@
                            style="width:50px;background:#222;color:#f0f;border:1px solid #555;font-family:'Courier New',monospace;font-size:11px;text-align:right;padding:1px 4px">
                 </div>
                 <div class="setting-row">
+                    <label>Merge Window (s)</label>
+                    <input type="range" id="s-mergeWindow" min="1" max="120" step="1" value="30">
+                    <input type="number" id="s-mergeWindow-input" min="1" max="120" value="30"
+                           style="width:50px;background:#222;color:#f0f;border:1px solid #555;font-family:'Courier New',monospace;font-size:11px;text-align:right;padding:1px 4px">
+                </div>
+                <div class="setting-row">
                     <label>Tick rate (t/s)</label>
                     <input type="range" id="s-tickRate" min="1" max="1000" step="1" value="10">
                     <span class="setting-val" id="v-tickRate">10</span>
@@ -389,28 +397,39 @@
             </div>
         </div>
         <div id="redis-panel">
-            <h3>Redis Cluster</h3>
+            <h3>Service Instances</h3>
+            <div id="instance-role-display" style="font-size:11px;margin-bottom:6px;padding:4px 0;border-bottom:1px solid #333">
+                <span class="label" style="color:#888">This instance:</span>
+                <span id="instance-role-label" style="color:#0f0;font-weight:bold;margin-left:6px">--</span>
+            </div>
             <div id="redis-nodes">
-                <div class="redis-node" data-node="redis-master">
-                    <span class="node-indicator" id="ind-redis-master"></span>
-                    <span class="node-name">redis-master</span>
-                    <span class="node-role" id="role-redis-master">--</span>
-                    <button class="node-btn stop" onclick="redisAction('stop','redis-master')">STOP</button>
-                    <button class="node-btn start" onclick="redisAction('start','redis-master')">START</button>
+                <div class="redis-node" data-node="app-a">
+                    <span class="node-indicator" id="ind-app-a"></span>
+                    <span class="node-name">app-a</span>
+                    <span class="node-role" id="role-app-a">--</span>
+                    <button class="node-btn stop" onclick="redisAction('stop','app-a')">CRASH</button>
+                    <button class="node-btn start" onclick="redisAction('start','app-a')">START</button>
                 </div>
-                <div class="redis-node" data-node="redis-replica-1">
-                    <span class="node-indicator" id="ind-redis-replica-1"></span>
-                    <span class="node-name">redis-replica-1</span>
-                    <span class="node-role" id="role-redis-replica-1">--</span>
-                    <button class="node-btn stop" onclick="redisAction('stop','redis-replica-1')">STOP</button>
-                    <button class="node-btn start" onclick="redisAction('start','redis-replica-1')">START</button>
+                <div class="redis-node" data-node="redis-a">
+                    <span class="node-indicator" id="ind-redis-a"></span>
+                    <span class="node-name">redis-a</span>
+                    <span class="node-role" id="role-redis-a">--</span>
+                    <button class="node-btn stop" onclick="redisAction('stop','redis-a')">CRASH</button>
+                    <button class="node-btn start" onclick="redisAction('start','redis-a')">START</button>
                 </div>
-                <div class="redis-node" data-node="redis-replica-2">
-                    <span class="node-indicator" id="ind-redis-replica-2"></span>
-                    <span class="node-name">redis-replica-2</span>
-                    <span class="node-role" id="role-redis-replica-2">--</span>
-                    <button class="node-btn stop" onclick="redisAction('stop','redis-replica-2')">STOP</button>
-                    <button class="node-btn start" onclick="redisAction('start','redis-replica-2')">START</button>
+                <div class="redis-node" data-node="app-b">
+                    <span class="node-indicator" id="ind-app-b"></span>
+                    <span class="node-name">app-b</span>
+                    <span class="node-role" id="role-app-b">--</span>
+                    <button class="node-btn stop" onclick="redisAction('stop','app-b')">CRASH</button>
+                    <button class="node-btn start" onclick="redisAction('start','app-b')">START</button>
+                </div>
+                <div class="redis-node" data-node="redis-b">
+                    <span class="node-indicator" id="ind-redis-b"></span>
+                    <span class="node-name">redis-b</span>
+                    <span class="node-role" id="role-redis-b">--</span>
+                    <button class="node-btn stop" onclick="redisAction('stop','redis-b')">CRASH</button>
+                    <button class="node-btn start" onclick="redisAction('start','redis-b')">START</button>
                 </div>
             </div>
             <div class="redis-actions">

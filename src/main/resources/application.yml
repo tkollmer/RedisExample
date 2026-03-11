@@ -16,16 +16,23 @@ detector:
 
 queue:
   entity-ttl-seconds: 30
-  merge-time-threshold-ms: 1000
+  merge-window-seconds: 30
   merge-width-overlap-percent: 50
 
 spring:
   data:
     redis:
-      sentinel:
-        master: mymaster
-        nodes: localhost:26379,localhost:26380,localhost:26381
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
       timeout: 3000ms
 
+server:
+  port: ${SERVER_PORT:8080}
+
 redis:
-  nodes: redis-master,redis-replica-1,redis-replica-2
+  nodes: ${REDIS_NODES:redis-a,redis-b,app-a,app-b}
+
+failover:
+  instance-id: ${INSTANCE_ID:app-a}
+  instance-role: ${INSTANCE_ROLE:active}
+  peer-url: ${PEER_URL:http://localhost:8081}

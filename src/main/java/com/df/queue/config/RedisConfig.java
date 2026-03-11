@@ -1,9 +1,9 @@
 package com.df.queue.config;
 
 import io.lettuce.core.ClientOptions;
-import io.lettuce.core.ReadFrom;
 import io.lettuce.core.TimeoutOptions;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -12,37 +12,13 @@ import org.springframework.data.redis.connection.lettuce.LettucePoolingClientCon
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
 
-/**
- * Redis connection and template configuration.
- *
- * <p>Key features:
- * <ul>
- *   <li><b>Connection pooling</b> — 16 pooled connections via commons-pool2,
- *       enabling concurrent pipelined operations without contention</li>
- *   <li><b>Sentinel-aware</b> — Lettuce discovers the master via Sentinel and
- *       auto-reconnects on failover</li>
- *   <li><b>Read distribution</b> — {@code REPLICA_PREFERRED} routes reads to
- *       replicas, falling back to master if none are available</li>
- *   <li><b>Aggressive timeouts</b> — 2-second command timeout for fast failure
- *       detection during crash testing</li>
- * </ul>
- */
 @Configuration
 public class RedisConfig {
 
-    /**
-     * Configures Lettuce with connection pooling and Sentinel read distribution.
-     *
-     * <p>Pool sizing:
-     * <ul>
-     *   <li>maxTotal=16 — supports concurrent pipelines from tick, detect, cleanup, and broadcast threads</li>
-     *   <li>maxIdle=8 — keeps warm connections ready</li>
-     *   <li>minIdle=2 — ensures baseline availability</li>
-     * </ul>
-     */
     @Bean
     public LettuceClientConfiguration lettuceClientConfiguration() {
         GenericObjectPoolConfig<?> poolConfig = new GenericObjectPoolConfig<>();
@@ -52,7 +28,6 @@ public class RedisConfig {
 
         return LettucePoolingClientConfiguration.builder()
                 .poolConfig(poolConfig)
-                .readFrom(ReadFrom.REPLICA_PREFERRED)
                 .commandTimeout(Duration.ofSeconds(2))
                 .clientOptions(ClientOptions.builder()
                         .autoReconnect(true)
@@ -62,10 +37,6 @@ public class RedisConfig {
                 .build();
     }
 
-    /**
-     * Creates the RedisTemplate with String key serialization and JSON value serialization.
-     * Hash keys are also serialized as Strings for readable key names in Redis.
-     */
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
@@ -75,5 +46,13 @@ public class RedisConfig {
         template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
         template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
         return template;
+    }
+
+    @Bean
+    public RestTemplate restTemplate(RestTemplateBuilder builder) {
+        return builder
+                .setConnectTimeout(Duration.ofSeconds(2))
+                .setReadTimeout(Duration.ofSeconds(2))
+                .build();
     }
 }

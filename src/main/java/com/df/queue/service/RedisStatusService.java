@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -13,14 +14,8 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Polls Docker containers to determine Redis node status and broadcasts to WebSocket clients.
- *
- * <p>Every 2 seconds, inspects each Redis container via {@code docker inspect} to check
- * running state, then uses {@code docker exec redis-cli INFO replication} to determine
- * the node's role (master/slave/down).
- *
- * <p>Requires the Docker socket to be mounted in the app container
- * ({@code /var/run/docker.sock}).
+ * Polls Docker containers to determine node status and broadcasts to WebSocket clients.
+ * Supports both Redis containers and app containers (with active/standby roles).
  */
 @Service
 public class RedisStatusService {
@@ -28,15 +23,16 @@ public class RedisStatusService {
     private static final Logger log = LoggerFactory.getLogger(RedisStatusService.class);
 
     private final SignalWebSocketHandler wsHandler;
+    private final RestTemplate restTemplate;
 
-    @Value("${redis.nodes:redis-master,redis-replica-1,redis-replica-2}")
+    @Value("${redis.nodes:redis-a,redis-b,app-a,app-b}")
     private String nodesCsv;
 
-    public RedisStatusService(SignalWebSocketHandler wsHandler) {
+    public RedisStatusService(SignalWebSocketHandler wsHandler, RestTemplate restTemplate) {
         this.wsHandler = wsHandler;
+        this.restTemplate = restTemplate;
     }
 
-    /** Polls all Redis containers and broadcasts their status. */
     @Scheduled(fixedRate = 2000)
     public void pollAndBroadcast() {
         List<Map<String, Object>> statuses = new ArrayList<>();
@@ -46,17 +42,12 @@ public class RedisStatusService {
         wsHandler.broadcast("redis-status", statuses);
     }
 
-    /**
-     * Inspects a single Redis container via Docker CLI.
-     *
-     * @param containerName Docker container name (e.g. "redis-master")
-     * @return map with keys: name, running, status, role
-     */
+    @SuppressWarnings("unchecked")
     private Map<String, Object> inspectNode(String containerName) {
         Map<String, Object> info = new LinkedHashMap<>();
         info.put("name", containerName);
 
-        // Check container running state via docker inspect
+        // Check container running state
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     "docker", "inspect", "-f",
@@ -83,9 +74,32 @@ public class RedisStatusService {
             info.put("status", "error");
         }
 
-        // Determine replication role via redis-cli INFO
+        Boolean running = (Boolean) info.get("running");
+
+        // For app containers, determine role via health endpoint
+        if (containerName.startsWith("app-")) {
+            if (running != null && running) {
+                try {
+                    // Determine port: app-a=8080, app-b=8081
+                    int port = containerName.equals("app-a") ? 8080 : 8081;
+                    Map<String, Object> health = restTemplate.getForObject(
+                            "http://localhost:" + port + "/api/health", Map.class);
+                    if (health != null && health.get("active") != null) {
+                        info.put("role", (Boolean) health.get("active") ? "active" : "standby");
+                    } else {
+                        info.put("role", "unknown");
+                    }
+                } catch (Exception e) {
+                    info.put("role", "starting");
+                }
+            } else {
+                info.put("role", "down");
+            }
+            return info;
+        }
+
+        // For Redis containers, check replication role
         try {
-            Boolean running = (Boolean) info.get("running");
             if (running != null && running) {
                 ProcessBuilder pb = new ProcessBuilder(
                         "docker", "exec", containerName,

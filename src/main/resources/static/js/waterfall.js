@@ -1,4 +1,4 @@
-// Redis node control — defined globally before IIFE so onclick handlers always work
+// Redis/service node control — defined globally before IIFE so onclick handlers always work
 function redisAction(action, node) {
     var url;
     if (action === 'stop-all') {
@@ -8,13 +8,12 @@ function redisAction(action, node) {
     } else {
         url = '/api/redis/' + action + '/' + node;
     }
-    // Disable all redis buttons while request is in flight
     var btns = document.querySelectorAll('.node-btn');
     btns.forEach(function (b) { b.disabled = true; b.style.opacity = '0.5'; });
     fetch(url, { method: 'POST' })
         .then(function (r) { return r.json(); })
-        .then(function (data) { console.log('Redis ' + action + ':', data); })
-        .catch(function (e) { console.error('Redis action failed:', e); })
+        .then(function (data) { console.log('Action ' + action + ':', data); })
+        .catch(function (e) { console.error('Action failed:', e); })
         .finally(function () {
             btns.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; });
         });
@@ -59,6 +58,7 @@ function redisAction(action, node) {
     const mergedCountEl = document.getElementById('merged-count');
     const mergeEventsListEl = document.getElementById('merge-events-list');
     const mergedCardsEl = document.getElementById('merged-cards');
+    const instanceRoleLabel = document.getElementById('instance-role-label');
 
     // Color map
     const COLOR_CSS = {
@@ -109,14 +109,12 @@ function redisAction(action, node) {
             var py = t * scaleY;
             c.beginPath(); c.moveTo(0, py); c.lineTo(w, py); c.stroke();
         }
-        // Width labels
         c.fillStyle = '#444';
         c.font = '10px Courier New';
         var wStep = MAX_WIDTH <= 2000 ? 200 : MAX_WIDTH <= 10000 ? 1000 : 5000;
         for (var x2 = 0; x2 <= MAX_WIDTH; x2 += wStep) {
             c.fillText(x2.toString(), x2 * scaleX + 2, h - 4);
         }
-        // Time labels
         var totalSec = Math.ceil(RETENTION_MS / 1000);
         var tStep = totalSec <= 15 ? 1 : totalSec <= 60 ? 5 : 10;
         for (var s = 0; s <= totalSec; s += tStep) {
@@ -128,13 +126,11 @@ function redisAction(action, node) {
     function render() {
         var now = Date.now();
 
-        // --- Main waterfall ---
         var w = canvas.width, h = canvas.height;
         var scaleX = w / MAX_WIDTH, scaleY = h / RETENTION_MS;
 
         drawGrid(ctx, w, h, scaleX, scaleY, '#0a0a0a');
 
-        // Signal blocks
         for (var i = 0; i < blocks.length; i++) {
             var block = blocks[i];
             var age = now - block.startTime;
@@ -156,7 +152,6 @@ function redisAction(action, node) {
         }
         ctx.globalAlpha = 1.0;
 
-        // Detector vertical overlay
         var dx = detectorPos * scaleX, dw = detectorWidth * scaleX;
         ctx.fillStyle = 'rgba(0, 255, 0, 0.06)';
         ctx.fillRect(dx, 0, dw, h);
@@ -169,7 +164,6 @@ function redisAction(action, node) {
         ctx.font = '11px Courier New';
         ctx.fillText('DETECTOR', dx + 4, 16);
 
-        // Detector time window band
         var twH = detectorTimeWin * scaleY;
         ctx.fillStyle = 'rgba(0, 255, 0, 0.04)';
         ctx.fillRect(0, 0, w, twH);
@@ -182,7 +176,7 @@ function redisAction(action, node) {
         ctx.font = '9px Courier New';
         ctx.fillText('TIME WINDOW ' + detectorTimeWin + 'ms', w - 160, twH - 4);
 
-        // --- Merged waterfall (same axes) ---
+        // --- Merged waterfall ---
         var mw = mCanvas.width, mh = mCanvas.height;
         var mScaleX = mw / MAX_WIDTH, mScaleY = mh / RETENTION_MS;
 
@@ -196,7 +190,6 @@ function redisAction(action, node) {
             var we = Number(e.widthEnd) || 0;
             var col = e.color || 'green';
 
-            // Same coordinate system: age from now
             var eAge = now - st;
             var eEndAge = now - et;
             var ey1 = Math.max(0, eAge * mScaleY);
@@ -216,7 +209,6 @@ function redisAction(action, node) {
             mCtx.lineWidth = 1.5;
             mCtx.strokeRect(ex, eyTop, ebw, ebh);
 
-            // Label
             mCtx.globalAlpha = 0.9;
             mCtx.fillStyle = '#fff';
             mCtx.font = '9px Courier New';
@@ -232,16 +224,13 @@ function redisAction(action, node) {
             mCtx.fillText('No merged entities in Redis', 20, mh / 2);
         }
 
-        // Hover tooltip on main waterfall
         if (mouseCanvas === canvas && hoveredBlock) {
             drawTooltip(ctx, mouseX, mouseY, hoveredBlock, 'block');
         }
-        // Hover tooltip on merged waterfall
         if (mouseCanvas === mCanvas && hoveredEntity) {
             drawTooltip(mCtx, mouseX, mouseY, hoveredEntity, 'entity');
         }
 
-        // FPS
         frameCount++;
         var elapsed = performance.now() - lastFpsTime;
         if (elapsed > 1000) {
@@ -284,7 +273,6 @@ function redisAction(action, node) {
         }
         var bw = tw + pad * 2, bh = lines.length * lineH + pad * 2;
         var tx = mx + 12, ty = my - bh / 2;
-        // keep on screen
         if (tx + bw > c.canvas.width) tx = mx - bw - 12;
         if (ty < 0) ty = 4;
         if (ty + bh > c.canvas.height) ty = c.canvas.height - bh - 4;
@@ -300,7 +288,7 @@ function redisAction(action, node) {
         }
     }
 
-    // Hit-test: find block/entity under mouse
+    // Hit-test
     function hitTestBlock(mx, my) {
         var now = Date.now();
         var w = canvas.width, h = canvas.height;
@@ -358,7 +346,7 @@ function redisAction(action, node) {
         if (mouseCanvas === mCanvas) { hoveredEntity = null; mouseCanvas = null; }
     });
 
-    // === Pause (server-side) ===
+    // === Pause ===
     var pauseBtn = document.getElementById('pause-btn');
     if (pauseBtn) {
         pauseBtn.addEventListener('click', function () {
@@ -396,7 +384,6 @@ function redisAction(action, node) {
     }
 
     function handleMessage(msg) {
-        // Status messages always processed, even when paused
         switch (msg.type) {
             case 'redis-status':
                 if (msg.data && Array.isArray(msg.data)) {
@@ -411,8 +398,12 @@ function redisAction(action, node) {
                     if (teEl) teEl.textContent = msg.data.totalEntities || 0;
                 }
                 return;
+            case 'instance-status':
+                if (msg.data) {
+                    updateInstanceStatus(msg.data);
+                }
+                return;
         }
-        // Signal messages skipped when paused
         if (paused) return;
         switch (msg.type) {
             case 'blocks':
@@ -478,8 +469,20 @@ function redisAction(action, node) {
             if (roleEl) {
                 var role = node.role || 'down';
                 roleEl.textContent = role;
-                roleEl.className = 'node-role' + (role === 'master' ? ' master' : (role === 'slave' ? ' slave' : ''));
+                roleEl.className = 'node-role' +
+                    (role === 'master' ? ' master' :
+                     role === 'active' ? ' active' :
+                     role === 'standby' ? ' standby' :
+                     role === 'slave' ? ' slave' : '');
             }
+        }
+    }
+
+    function updateInstanceStatus(data) {
+        if (instanceRoleLabel && data.role) {
+            var role = data.role;
+            instanceRoleLabel.textContent = data.instanceId + ' (' + role + ')';
+            instanceRoleLabel.style.color = role === 'active' ? '#0f0' : '#f80';
         }
     }
 
@@ -574,7 +577,7 @@ function redisAction(action, node) {
         tickRate:    { el: document.getElementById('s-tickRate'),     val: document.getElementById('v-tickRate'),     key: '_tickRate' },
     };
 
-    // TTL: slider + text input synced together
+    // TTL: slider + text input synced
     var ttlSlider = document.getElementById('s-ttl');
     var ttlInput = document.getElementById('s-ttl-input');
 
@@ -590,6 +593,22 @@ function redisAction(action, node) {
     ttlSlider.addEventListener('input', function () { syncTtl(ttlSlider); });
     ttlInput.addEventListener('change', function () { syncTtl(ttlInput); });
 
+    // Merge window: slider + text input synced
+    var mergeWindowSlider = document.getElementById('s-mergeWindow');
+    var mergeWindowInput = document.getElementById('s-mergeWindow-input');
+
+    function syncMergeWindow(source) {
+        var v = Number(source.value);
+        if (isNaN(v) || v < 1) v = 1;
+        if (v > 120) v = 120;
+        mergeWindowSlider.value = v;
+        mergeWindowInput.value = v;
+        clearTimeout(settingsTimer);
+        settingsTimer = setTimeout(sendSettings, 300);
+    }
+    mergeWindowSlider.addEventListener('input', function () { syncMergeWindow(mergeWindowSlider); });
+    mergeWindowInput.addEventListener('change', function () { syncMergeWindow(mergeWindowInput); });
+
     var settingsTimer = null;
     function onSliderChange() {
         for (var k in sliders) {
@@ -604,13 +623,13 @@ function redisAction(action, node) {
         var body = {};
         for (var k in sliders) {
             if (sliders[k].key === '_tickRate') {
-                // Convert ticks/sec to interval ms
                 body.tickIntervalMs = Math.round(1000 / Number(sliders[k].el.value));
             } else {
                 body[sliders[k].key] = Number(sliders[k].el.value);
             }
         }
         body.entityTtlSeconds = Number(ttlSlider.value);
+        body.mergeWindowSeconds = Number(mergeWindowSlider.value);
         fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -632,6 +651,7 @@ function redisAction(action, node) {
             if (cfg.detectorTimeWindowMs !== undefined)  { sliders.detTimeWin.el.value = cfg.detectorTimeWindowMs; sliders.detTimeWin.val.textContent = cfg.detectorTimeWindowMs; }
             if (cfg.detectionProbability !== undefined)  { sliders.detProb.el.value = cfg.detectionProbability; sliders.detProb.val.textContent = cfg.detectionProbability; }
             if (cfg.entityTtlSeconds !== undefined)    { ttlSlider.value = cfg.entityTtlSeconds; ttlInput.value = cfg.entityTtlSeconds; }
+            if (cfg.mergeWindowSeconds !== undefined)   { mergeWindowSlider.value = cfg.mergeWindowSeconds; mergeWindowInput.value = cfg.mergeWindowSeconds; }
             if (cfg.tickIntervalMs !== undefined)       { var rate = Math.round(1000 / cfg.tickIntervalMs); sliders.tickRate.el.value = rate; sliders.tickRate.val.textContent = rate; }
             if (cfg.paused !== undefined) {
                 paused = cfg.paused;

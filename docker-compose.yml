@@ -1,96 +1,60 @@
 services:
-  redis-master:
+  redis-a:
     image: redis:7-alpine
-    container_name: redis-master
+    container_name: redis-a
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes --appendfsync everysec
     volumes:
-      - redis-master-data:/data
+      - redis-a-data:/data
 
-  redis-replica-1:
+  redis-b:
     image: redis:7-alpine
-    container_name: redis-replica-1
+    container_name: redis-b
     ports:
       - "6380:6379"
-    command: redis-server --appendonly yes --appendfsync everysec --replicaof redis-master 6379
-    depends_on:
-      - redis-master
+    command: redis-server --appendonly yes --appendfsync everysec
     volumes:
-      - redis-replica1-data:/data
+      - redis-b-data:/data
 
-  redis-replica-2:
-    image: redis:7-alpine
-    container_name: redis-replica-2
-    ports:
-      - "6381:6379"
-    command: redis-server --appendonly yes --appendfsync everysec --replicaof redis-master 6379
-    depends_on:
-      - redis-master
-    volumes:
-      - redis-replica2-data:/data
-
-  sentinel-1:
-    image: redis:7-alpine
-    container_name: sentinel-1
-    ports:
-      - "26379:26379"
-    volumes:
-      - ./sentinel/sentinel.conf:/etc/redis/sentinel.conf:ro
-    entrypoint: >
-      sh -c "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"
-    depends_on:
-      - redis-master
-      - redis-replica-1
-      - redis-replica-2
-
-  sentinel-2:
-    image: redis:7-alpine
-    container_name: sentinel-2
-    ports:
-      - "26380:26379"
-    volumes:
-      - ./sentinel/sentinel.conf:/etc/redis/sentinel.conf:ro
-    entrypoint: >
-      sh -c "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"
-    depends_on:
-      - redis-master
-      - redis-replica-1
-      - redis-replica-2
-
-  sentinel-3:
-    image: redis:7-alpine
-    container_name: sentinel-3
-    ports:
-      - "26381:26379"
-    volumes:
-      - ./sentinel/sentinel.conf:/etc/redis/sentinel.conf:ro
-    entrypoint: >
-      sh -c "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf"
-    depends_on:
-      - redis-master
-      - redis-replica-1
-      - redis-replica-2
-
-  app:
+  app-a:
     build: .
+    container_name: app-a
     ports:
       - "8080:8080"
     depends_on:
-      - redis-master
-      - redis-replica-1
-      - redis-replica-2
-      - sentinel-1
-      - sentinel-2
-      - sentinel-3
+      - redis-a
+      - redis-b
     environment:
-      SPRING_DATA_REDIS_SENTINEL_MASTER: mymaster
-      SPRING_DATA_REDIS_SENTINEL_NODES: sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
-      REDIS_NODES: redis-master,redis-replica-1,redis-replica-2
+      REDIS_HOST: redis-a
+      REDIS_PORT: 6379
+      SERVER_PORT: 8080
+      INSTANCE_ID: app-a
+      INSTANCE_ROLE: active
+      PEER_URL: http://app-b:8080
+      REDIS_NODES: redis-a,redis-b,app-a,app-b
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  app-b:
+    build: .
+    container_name: app-b
+    ports:
+      - "8081:8080"
+    depends_on:
+      - redis-a
+      - redis-b
+    environment:
+      REDIS_HOST: redis-b
+      REDIS_PORT: 6379
+      SERVER_PORT: 8080
+      INSTANCE_ID: app-b
+      INSTANCE_ROLE: standby
+      PEER_URL: http://app-a:8080
+      REDIS_NODES: redis-a,redis-b,app-a,app-b
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
-  redis-master-data:
-  redis-replica1-data:
-  redis-replica2-data:
+  redis-a-data:
+  redis-b-data:

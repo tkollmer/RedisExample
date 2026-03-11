@@ -16,7 +16,7 @@ public class RedisNodeController {
 
     private static final Logger log = LoggerFactory.getLogger(RedisNodeController.class);
 
-    @Value("${redis.nodes:redis-master,redis-replica-1,redis-replica-2}")
+    @Value("${redis.nodes:redis-a,redis-b,app-a,app-b}")
     private String nodesCsv;
 
     private List<String> getNodes() {
@@ -90,38 +90,42 @@ public class RedisNodeController {
             info.put("status", "error");
         }
 
-        // Determine role via redis-cli INFO replication
-        try {
-            Boolean running = (Boolean) info.get("running");
-            if (running != null && running) {
-                ProcessBuilder pb = new ProcessBuilder(
-                        "docker", "exec", containerName,
-                        "redis-cli", "INFO", "replication");
-                pb.redirectErrorStream(true);
-                Process proc = pb.start();
-                String role = "unknown";
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (line.startsWith("role:")) {
-                            role = line.substring(5).trim();
-                            break;
+        // For Redis nodes, check replication role
+        if (containerName.startsWith("redis-")) {
+            try {
+                Boolean running = (Boolean) info.get("running");
+                if (running != null && running) {
+                    ProcessBuilder pb = new ProcessBuilder(
+                            "docker", "exec", containerName,
+                            "redis-cli", "INFO", "replication");
+                    pb.redirectErrorStream(true);
+                    Process proc = pb.start();
+                    String role = "unknown";
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            if (line.startsWith("role:")) {
+                                role = line.substring(5).trim();
+                                break;
+                            }
                         }
                     }
+                    proc.waitFor(3, TimeUnit.SECONDS);
+                    info.put("role", role);
+                } else {
+                    info.put("role", "down");
                 }
-                proc.waitFor(3, TimeUnit.SECONDS);
-                info.put("role", role);
-            } else {
-                info.put("role", "down");
+            } catch (Exception e) {
+                info.put("role", "unknown");
             }
-        } catch (Exception e) {
-            info.put("role", "unknown");
+        } else {
+            // App nodes — role determined elsewhere
+            info.put("role", info.get("running") != null && (Boolean) info.get("running") ? "app" : "down");
         }
         return info;
     }
 
     private Map<String, Object> execDocker(String action, String containerName) {
-        // Validate container name is one of our known nodes
         if (!getNodes().contains(containerName)) {
             return Map.of("success", false, "error", "Unknown node: " + containerName);
         }

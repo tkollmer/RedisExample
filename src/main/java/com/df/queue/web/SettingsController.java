@@ -37,6 +37,7 @@ public class SettingsController {
         m.put("maxWidth", signalGenerator.getMaxWidth());
         m.put("retentionMs", signalGenerator.getRetentionMs());
         m.put("entityTtlSeconds", queueService.getEntityTtlSeconds());
+        m.put("mergeWindowSeconds", queueService.getMergeWindowSeconds());
         m.put("tickIntervalMs", signalGenerator.getTickIntervalMs());
         m.put("paused", signalGenerator.isPaused());
         return m;
@@ -79,6 +80,9 @@ public class SettingsController {
         }
         if (settings.containsKey("entityTtlSeconds")) {
             queueService.setEntityTtlSeconds(((Number) settings.get("entityTtlSeconds")).longValue());
+        }
+        if (settings.containsKey("mergeWindowSeconds")) {
+            queueService.setMergeWindowSeconds(((Number) settings.get("mergeWindowSeconds")).intValue());
         }
         if (settings.containsKey("tickIntervalMs")) {
             signalGenerator.setTickIntervalMs(((Number) settings.get("tickIntervalMs")).longValue());

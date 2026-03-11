@@ -7,23 +7,12 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.*;
 
-/**
- * Generates random signal blocks at a configurable tick rate.
- *
- * <p>Each tick produces 0 to {@code maxBlocksPerTick} signal blocks with random
- * frequency position, bandwidth, duration, and amplitude. Blocks are assigned
- * a color based on amplitude (blue → cyan → green → yellow → red).
- *
- * <p>The generator broadcasts visible blocks to WebSocket clients and hands off
- * active blocks to the {@link DetectorService} for entity detection. The handoff
- * is non-blocking via {@link DetectorService#offerDetect} to prevent slow Redis
- * operations from stalling the tick scheduler.
- */
 @Service
 public class SignalGenerator {
 
@@ -31,6 +20,7 @@ public class SignalGenerator {
 
     private final SignalWebSocketHandler wsHandler;
     private final DetectorService detectorService;
+    private final FailoverService failoverService;
 
     @Value("${signal.max-width}")
     private int maxWidth;
@@ -58,14 +48,15 @@ public class SignalGenerator {
 
     private volatile boolean paused = false;
 
-    /** Thread-safe collection of active signal blocks (visible on the waterfall). */
     private final Deque<SignalBlock> activeBlocks = new ConcurrentLinkedDeque<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> tickFuture;
 
-    public SignalGenerator(SignalWebSocketHandler wsHandler, DetectorService detectorService) {
+    public SignalGenerator(SignalWebSocketHandler wsHandler, DetectorService detectorService,
+                           @Lazy FailoverService failoverService) {
         this.wsHandler = wsHandler;
         this.detectorService = detectorService;
+        this.failoverService = failoverService;
     }
 
     @PostConstruct
@@ -78,7 +69,6 @@ public class SignalGenerator {
         scheduler.shutdownNow();
     }
 
-    /** Cancels the current tick schedule and starts a new one at the current interval. */
     private synchronized void reschedule() {
         if (tickFuture != null) {
             tickFuture.cancel(false);
@@ -86,26 +76,14 @@ public class SignalGenerator {
         tickFuture = scheduler.scheduleAtFixedRate(this::tick, 0, tickIntervalMs, TimeUnit.MILLISECONDS);
     }
 
-    /**
-     * Executes one tick of signal generation.
-     *
-     * <p>Steps:
-     * <ol>
-     *   <li>Evict blocks past the retention window</li>
-     *   <li>Generate 0..maxBlocksPerTick random blocks</li>
-     *   <li>Broadcast all visible blocks to WebSocket clients</li>
-     *   <li>Hand off active blocks to DetectorService (non-blocking)</li>
-     * </ol>
-     */
     public void tick() {
-        if (paused) return;
+        // Standby instances skip signal generation entirely
+        if (paused || !failoverService.isActive()) return;
 
         long now = System.currentTimeMillis();
 
-        // Evict blocks that have exceeded the retention window
         activeBlocks.removeIf(b -> b.getEndTime() < now - retentionMs);
 
-        // Generate random signal blocks
         ThreadLocalRandom rng = ThreadLocalRandom.current();
         int count = rng.nextInt(0, maxBlocksPerTick + 1);
         List<SignalBlock> newBlocks = new ArrayList<>();
@@ -128,7 +106,6 @@ public class SignalGenerator {
             activeBlocks.add(block);
         }
 
-        // Broadcast all visible blocks for waterfall rendering
         List<SignalBlock> visible = activeBlocks.stream()
                 .filter(b -> b.getEndTime() >= now - retentionMs)
                 .toList();
@@ -138,7 +115,6 @@ public class SignalGenerator {
                 "retentionMs", retentionMs
         ));
 
-        // Hand off active blocks to detector (non-blocking — won't stall the tick)
         List<SignalBlock> current = activeBlocks.stream()
                 .filter(b -> b.getEndTime() >= now)
                 .toList();
@@ -148,8 +124,6 @@ public class SignalGenerator {
     public Collection<SignalBlock> getActiveBlocks() {
         return Collections.unmodifiableCollection(activeBlocks);
     }
-
-    // ── Getters & setters (used by SettingsController) ──────────────────
 
     public int getMaxBlocksPerTick() { return maxBlocksPerTick; }
     public void setMaxBlocksPerTick(int v) { this.maxBlocksPerTick = Math.max(0, Math.min(500, v)); }
