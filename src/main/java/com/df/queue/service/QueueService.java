@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.*;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,6 +29,7 @@ import java.util.*;
  * queries, then filtered by color match and width similarity.
  */
 @Service
+@ConditionalOnProperty(name = "app.mode", havingValue = "queue", matchIfMissing = true)
 public class QueueService {
 
     private static final Logger log = LoggerFactory.getLogger(QueueService.class);
@@ -49,8 +51,6 @@ public class QueueService {
     @Value("${queue.merge-width-overlap-percent}")
     private int mergeWidthOverlapPercent;
 
-    private volatile boolean broadcastEnabled = true;
-
     public QueueService(RedisTemplate<String, Object> redisTemplate, SignalWebSocketHandler wsHandler,
                         ThroughputService throughputService) {
         this.redisTemplate = redisTemplate;
@@ -63,9 +63,6 @@ public class QueueService {
 
     public int getMergeWindowSeconds() { return mergeWindowSeconds; }
     public void setMergeWindowSeconds(int v) { this.mergeWindowSeconds = Math.max(1, Math.min(120, v)); }
-
-    public void setBroadcastEnabled(boolean enabled) { this.broadcastEnabled = enabled; }
-    public boolean isBroadcastEnabled() { return broadcastEnabled; }
 
     // ────────────────────────────────────────────────────────────────────
     //  Hash conversion helpers
@@ -114,14 +111,14 @@ public class QueueService {
             throughputService.recordEntity();
             DetectedEntity merged = findMergeCandidateSingle(entity);
             if (merged != null) {
-                if (broadcastEnabled) wsHandler.broadcast("merge-start", buildMergeStartData(merged, entity));
+                wsHandler.broadcast("merge-start", buildMergeStartData(merged, entity));
                 merged.setStartTime(Math.min(merged.getStartTime(), entity.getStartTime()));
                 merged.setEndTime(Math.max(merged.getEndTime(), entity.getEndTime()));
                 merged.setWidthStart(Math.min(merged.getWidthStart(), entity.getWidthStart()));
                 merged.setWidthEnd(Math.max(merged.getWidthEnd(), entity.getWidthEnd()));
                 merged.setAmplitude(Math.max(merged.getAmplitude(), entity.getAmplitude()));
                 saveEntity(merged);
-                if (broadcastEnabled) wsHandler.broadcast("merge-end", buildMergeEndData(merged, entity));
+                wsHandler.broadcast("merge-end", buildMergeEndData(merged, entity));
                 return new EntityMessage("merged", merged);
             }
             saveEntity(entity);
@@ -220,7 +217,7 @@ public class QueueService {
                         entity, candidateHashMap, modifiedEntities);
 
                 if (merged != null) {
-                    if (broadcastEnabled) wsHandler.broadcast("merge-start", buildMergeStartData(merged, entity));
+                    wsHandler.broadcast("merge-start", buildMergeStartData(merged, entity));
 
                     merged.setStartTime(Math.min(merged.getStartTime(), entity.getStartTime()));
                     merged.setEndTime(Math.max(merged.getEndTime(), entity.getEndTime()));
@@ -233,7 +230,7 @@ public class QueueService {
 
                     toSave.put(merged.getEntityId(), merged);
 
-                    if (broadcastEnabled) wsHandler.broadcast("merge-end", buildMergeEndData(merged, entity));
+                    wsHandler.broadcast("merge-end", buildMergeEndData(merged, entity));
                     results.add(new EntityMessage("merged", merged));
                 } else {
                     // New entity — add to local tracking for intra-batch merging
@@ -263,10 +260,8 @@ public class QueueService {
             });
 
             // Broadcast entity events
-            if (broadcastEnabled) {
-                for (EntityMessage msg : results) {
-                    wsHandler.broadcast("entity", msg);
-                }
+            for (EntityMessage msg : results) {
+                wsHandler.broadcast("entity", msg);
             }
 
         } catch (Exception e) {
@@ -531,7 +526,6 @@ public class QueueService {
      */
     @Scheduled(fixedRate = 500)
     public void broadcastMergedEntities() {
-        if (!broadcastEnabled) return;
         try {
             List<Map<String, String>> all = getQueueState();
             wsHandler.broadcast("redis-entities", all);

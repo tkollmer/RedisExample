@@ -1,3 +1,6 @@
+app:
+  mode: ${APP_MODE:queue}
+
 signal:
   tick-interval-ms: 100
   max-width: 10000
@@ -30,7 +33,11 @@ server:
   port: ${SERVER_PORT:8080}
 
 redis:
-  nodes: ${REDIS_NODES:redis-a,redis-b,app-a,app-b}
+  nodes: ${REDIS_NODES:sim,app-a,redis-a,app-b,redis-b}
+
+sim:
+  targets: ${SIM_TARGETS:http://localhost:8080,http://localhost:8081}
+  url: ${SIM_URL:http://localhost:8082}
 
 failover:
   instance-id: ${INSTANCE_ID:app-a}

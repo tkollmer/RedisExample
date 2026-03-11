@@ -1,95 +1,82 @@
 package com.df.queue.web;
 
-import com.df.queue.service.DetectorService;
 import com.df.queue.service.QueueService;
-import com.df.queue.service.SignalGenerator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Settings controller for queue mode instances.
+ * Serves local queue settings and proxies signal/detector settings to the sim service.
+ */
 @RestController
+@ConditionalOnProperty(name = "app.mode", havingValue = "queue", matchIfMissing = true)
 @RequestMapping("/api/settings")
 public class SettingsController {
 
-    private final SignalGenerator signalGenerator;
-    private final DetectorService detectorService;
-    private final QueueService queueService;
+    private static final Logger log = LoggerFactory.getLogger(SettingsController.class);
 
-    public SettingsController(SignalGenerator signalGenerator, DetectorService detectorService, QueueService queueService) {
-        this.signalGenerator = signalGenerator;
-        this.detectorService = detectorService;
+    private final QueueService queueService;
+    private final RestTemplate restTemplate;
+
+    @Value("${sim.url:http://sim:8080}")
+    private String simUrl;
+
+    public SettingsController(QueueService queueService, RestTemplate restTemplate) {
         this.queueService = queueService;
+        this.restTemplate = restTemplate;
     }
 
     @GetMapping
+    @SuppressWarnings("unchecked")
     public Map<String, Object> getSettings() {
         Map<String, Object> m = new HashMap<>();
-        m.put("maxBlocksPerTick", signalGenerator.getMaxBlocksPerTick());
-        m.put("minBlockDurationMs", signalGenerator.getMinBlockDuration());
-        m.put("maxBlockDurationMs", signalGenerator.getMaxBlockDuration());
-        m.put("minBlockWidth", signalGenerator.getMinBlockWidth());
-        m.put("maxBlockWidth", signalGenerator.getMaxBlockWidth());
-        m.put("detectorWindowWidthPercent", detectorService.getWindowWidthPercent());
-        m.put("detectorOverlapPercent", detectorService.getOverlapPercent());
-        m.put("detectorTimeWindowMs", detectorService.getTimeWindowMs());
-        m.put("detectionProbability", detectorService.getDetectionProbability());
-        m.put("maxWidth", signalGenerator.getMaxWidth());
-        m.put("retentionMs", signalGenerator.getRetentionMs());
+
+        // Local queue settings
         m.put("entityTtlSeconds", queueService.getEntityTtlSeconds());
         m.put("mergeWindowSeconds", queueService.getMergeWindowSeconds());
-        m.put("tickIntervalMs", signalGenerator.getTickIntervalMs());
-        m.put("paused", signalGenerator.isPaused());
+
+        // Fetch signal/detector settings from sim
+        try {
+            Map<String, Object> simSettings = restTemplate.getForObject(
+                    simUrl + "/api/settings", Map.class);
+            if (simSettings != null) {
+                m.putAll(simSettings);
+            }
+        } catch (Exception e) {
+            log.debug("Failed to fetch sim settings: {}", e.getMessage());
+        }
+
+        // Override with local values (in case sim returned stale data)
+        m.put("entityTtlSeconds", queueService.getEntityTtlSeconds());
+        m.put("mergeWindowSeconds", queueService.getMergeWindowSeconds());
+
         return m;
     }
 
     @PostMapping
     public Map<String, Object> updateSettings(@RequestBody Map<String, Object> settings) {
-        if (settings.containsKey("maxBlocksPerTick")) {
-            signalGenerator.setMaxBlocksPerTick(((Number) settings.get("maxBlocksPerTick")).intValue());
-        }
-        if (settings.containsKey("minBlockDurationMs")) {
-            signalGenerator.setMinBlockDuration(((Number) settings.get("minBlockDurationMs")).longValue());
-        }
-        if (settings.containsKey("maxBlockDurationMs")) {
-            signalGenerator.setMaxBlockDuration(((Number) settings.get("maxBlockDurationMs")).longValue());
-        }
-        if (settings.containsKey("minBlockWidth")) {
-            signalGenerator.setMinBlockWidth(((Number) settings.get("minBlockWidth")).doubleValue());
-        }
-        if (settings.containsKey("maxBlockWidth")) {
-            signalGenerator.setMaxBlockWidth(((Number) settings.get("maxBlockWidth")).doubleValue());
-        }
-        if (settings.containsKey("detectorWindowWidthPercent")) {
-            detectorService.setWindowWidthPercent(((Number) settings.get("detectorWindowWidthPercent")).intValue());
-        }
-        if (settings.containsKey("detectorOverlapPercent")) {
-            detectorService.setOverlapPercent(((Number) settings.get("detectorOverlapPercent")).intValue());
-        }
-        if (settings.containsKey("detectorTimeWindowMs")) {
-            detectorService.setTimeWindowMs(((Number) settings.get("detectorTimeWindowMs")).longValue());
-        }
-        if (settings.containsKey("detectionProbability")) {
-            detectorService.setDetectionProbability(((Number) settings.get("detectionProbability")).intValue());
-        }
-        if (settings.containsKey("maxWidth")) {
-            signalGenerator.setMaxWidth(((Number) settings.get("maxWidth")).intValue());
-        }
-        if (settings.containsKey("retentionMs")) {
-            signalGenerator.setRetentionMs(((Number) settings.get("retentionMs")).longValue());
-        }
+        // Apply local queue settings
         if (settings.containsKey("entityTtlSeconds")) {
             queueService.setEntityTtlSeconds(((Number) settings.get("entityTtlSeconds")).longValue());
         }
         if (settings.containsKey("mergeWindowSeconds")) {
             queueService.setMergeWindowSeconds(((Number) settings.get("mergeWindowSeconds")).intValue());
         }
-        if (settings.containsKey("tickIntervalMs")) {
-            signalGenerator.setTickIntervalMs(((Number) settings.get("tickIntervalMs")).longValue());
+
+        // Forward all settings to sim (sim ignores queue-only settings)
+        try {
+            restTemplate.postForObject(simUrl + "/api/settings", settings, Map.class);
+        } catch (Exception e) {
+            log.debug("Failed to forward settings to sim: {}", e.getMessage());
         }
-        if (settings.containsKey("paused")) {
-            signalGenerator.setPaused((Boolean) settings.get("paused"));
-        }
+
         return getSettings();
     }
 }

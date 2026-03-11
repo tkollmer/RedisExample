@@ -17,6 +17,18 @@ services:
     volumes:
       - redis-b-data:/data
 
+  sim:
+    build: .
+    container_name: sim
+    ports:
+      - "8082:8080"
+    environment:
+      APP_MODE: sim
+      SERVER_PORT: 8080
+      INSTANCE_ID: sim
+      SIM_TARGETS: http://app-a:8080,http://app-b:8080
+      SPRING_AUTOCONFIGURE_EXCLUDE: org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+
   app-a:
     build: .
     container_name: app-a
@@ -24,15 +36,16 @@ services:
       - "8080:8080"
     depends_on:
       - redis-a
-      - redis-b
     environment:
+      APP_MODE: queue
       REDIS_HOST: redis-a
       REDIS_PORT: 6379
       SERVER_PORT: 8080
       INSTANCE_ID: app-a
       INSTANCE_ROLE: active
       PEER_URL: http://app-b:8080
-      REDIS_NODES: redis-a,redis-b,app-a,app-b
+      SIM_URL: http://sim:8080
+      REDIS_NODES: sim,app-a,redis-a,app-b,redis-b
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
@@ -42,16 +55,17 @@ services:
     ports:
       - "8081:8080"
     depends_on:
-      - redis-a
       - redis-b
     environment:
+      APP_MODE: queue
       REDIS_HOST: redis-b
       REDIS_PORT: 6379
       SERVER_PORT: 8080
       INSTANCE_ID: app-b
       INSTANCE_ROLE: standby
       PEER_URL: http://app-a:8080
-      REDIS_NODES: redis-a,redis-b,app-a,app-b
+      SIM_URL: http://sim:8080
+      REDIS_NODES: sim,app-a,redis-a,app-b,redis-b
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 

@@ -473,6 +473,7 @@ function redisAction(action, node) {
                     (role === 'master' ? ' master' :
                      role === 'active' ? ' active' :
                      role === 'standby' ? ' standby' :
+                     role === 'sim' ? ' sim' :
                      role === 'slave' ? ' slave' : '');
             }
         }

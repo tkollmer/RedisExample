@@ -140,6 +140,7 @@
         .node-role.slave { color: #08f; }
         .node-role.active { color: #0f0; }
         .node-role.standby { color: #f80; }
+        .node-role.sim { color: #f0f; }
         .node-btn {
             background: #222;
             border: 1px solid #555;
@@ -403,6 +404,13 @@
                 <span id="instance-role-label" style="color:#0f0;font-weight:bold;margin-left:6px">--</span>
             </div>
             <div id="redis-nodes">
+                <div class="redis-node" data-node="sim">
+                    <span class="node-indicator" id="ind-sim"></span>
+                    <span class="node-name">sim</span>
+                    <span class="node-role" id="role-sim">--</span>
+                    <button class="node-btn stop" onclick="redisAction('stop','sim')">CRASH</button>
+                    <button class="node-btn start" onclick="redisAction('start','sim')">START</button>
+                </div>
                 <div class="redis-node" data-node="app-a">
                     <span class="node-indicator" id="ind-app-a"></span>
                     <span class="node-name">app-a</span>

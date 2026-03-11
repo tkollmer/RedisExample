@@ -3,6 +3,7 @@ package com.df.queue.web;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.BufferedReader;
@@ -11,12 +12,13 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 @RestController
+@ConditionalOnProperty(name = "app.mode", havingValue = "queue", matchIfMissing = true)
 @RequestMapping("/api/redis")
 public class RedisNodeController {
 
     private static final Logger log = LoggerFactory.getLogger(RedisNodeController.class);
 
-    @Value("${redis.nodes:redis-a,redis-b,app-a,app-b}")
+    @Value("${redis.nodes:sim,app-a,redis-a,app-b,redis-b}")
     private String nodesCsv;
 
     private List<String> getNodes() {

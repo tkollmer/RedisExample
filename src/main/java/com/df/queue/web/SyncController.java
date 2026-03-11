@@ -4,12 +4,14 @@ import com.df.queue.model.DetectedEntity;
 import com.df.queue.service.QueueService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 
 @RestController
+@ConditionalOnProperty(name = "app.mode", havingValue = "queue", matchIfMissing = true)
 @RequestMapping("/api/sync")
 public class SyncController {
 

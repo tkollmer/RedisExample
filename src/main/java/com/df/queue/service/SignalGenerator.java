@@ -1,26 +1,29 @@
 package com.df.queue.service;
 
 import com.df.queue.model.SignalBlock;
-import com.df.queue.web.SignalWebSocketHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.*;
 
+/**
+ * Generates random signal blocks and forwards them to all queue instances via SimForwardingService.
+ * Only active in sim mode.
+ */
 @Service
+@ConditionalOnProperty(name = "app.mode", havingValue = "sim")
 public class SignalGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(SignalGenerator.class);
 
-    private final SignalWebSocketHandler wsHandler;
     private final DetectorService detectorService;
-    private final FailoverService failoverService;
+    private final SimForwardingService forwardingService;
 
     @Value("${signal.max-width}")
     private int maxWidth;
@@ -52,11 +55,9 @@ public class SignalGenerator {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> tickFuture;
 
-    public SignalGenerator(SignalWebSocketHandler wsHandler, DetectorService detectorService,
-                           @Lazy FailoverService failoverService) {
-        this.wsHandler = wsHandler;
+    public SignalGenerator(DetectorService detectorService, SimForwardingService forwardingService) {
         this.detectorService = detectorService;
-        this.failoverService = failoverService;
+        this.forwardingService = forwardingService;
     }
 
     @PostConstruct
@@ -77,8 +78,7 @@ public class SignalGenerator {
     }
 
     public void tick() {
-        // Standby instances skip signal generation entirely
-        if (paused || !failoverService.isActive()) return;
+        if (paused) return;
 
         long now = System.currentTimeMillis();
 
@@ -109,7 +109,9 @@ public class SignalGenerator {
         List<SignalBlock> visible = activeBlocks.stream()
                 .filter(b -> b.getEndTime() >= now - retentionMs)
                 .toList();
-        wsHandler.broadcast("blocks", Map.of(
+
+        // Forward blocks to all queue instances for WebSocket broadcast
+        forwardingService.forwardBlocks(Map.of(
                 "blocks", visible,
                 "maxWidth", maxWidth,
                 "retentionMs", retentionMs

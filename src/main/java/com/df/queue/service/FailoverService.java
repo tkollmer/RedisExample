@@ -6,6 +6,7 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
@@ -21,16 +22,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Manages active/standby failover between two app instances.
+ * Manages peer health monitoring and crash recovery between two queue instances.
  *
- * <p>Heartbeats the peer every 1s. If the peer is unreachable for 3s
- * and this instance is standby, it promotes itself to active.
- * Split-brain resolution: lower instance ID wins.
- *
- * <p>On startup as standby, syncs state from the active peer.
- * SignalGenerator and QueueService check {@link #isActive()} to gate their behavior.
+ * <p>Both instances receive entities from the sim service, so there is no
+ * active-forwards-to-standby pattern. The role labels (active/standby) are
+ * purely informational. Recovery after crash uses snapshot sync from the peer.
  */
 @Service
+@ConditionalOnProperty(name = "app.mode", havingValue = "queue", matchIfMissing = true)
 public class FailoverService {
 
     private static final Logger log = LoggerFactory.getLogger(FailoverService.class);
@@ -65,8 +64,7 @@ public class FailoverService {
         active.set(isActive);
 
         if (!isActive) {
-            queueService.setBroadcastEnabled(false);
-            // Sync state from active peer on startup
+            // Sync state from peer on startup
             scheduler.schedule(this::syncFromPeer, 3, TimeUnit.SECONDS);
         }
 
@@ -124,6 +122,7 @@ public class FailoverService {
                 Boolean peerActive = (Boolean) response.get("active");
                 String peerId = (String) response.get("instanceId");
 
+                // Split-brain: both active → lower ID wins
                 if (peerActive != null && peerActive && active.get()) {
                     if (instanceId.compareTo(peerId) > 0) {
                         log.warn("Split-brain detected! {} demoting to standby (peer {} has priority)",
@@ -144,7 +143,6 @@ public class FailoverService {
     private void promote() {
         if (active.compareAndSet(false, true)) {
             log.info("PROMOTED {} to ACTIVE", instanceId);
-            queueService.setBroadcastEnabled(true);
             broadcastStatus();
         }
     }
@@ -152,7 +150,6 @@ public class FailoverService {
     private void demote() {
         if (active.compareAndSet(true, false)) {
             log.info("DEMOTED {} to STANDBY", instanceId);
-            queueService.setBroadcastEnabled(false);
             broadcastStatus();
             scheduler.schedule(this::syncFromPeer, 2, TimeUnit.SECONDS);
         }

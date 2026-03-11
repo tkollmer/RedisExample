@@ -2,33 +2,30 @@ package com.df.queue.service;
 
 import com.df.queue.model.DetectedEntity;
 import com.df.queue.model.SignalBlock;
-import com.df.queue.web.SignalWebSocketHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
 import java.util.concurrent.*;
 
 /**
- * Sliding-window entity detector. After publishing to local Redis,
- * forwards detected entities to the peer instance if this instance is active.
+ * Sliding-window entity detector. Forwards detected entities to all queue instances
+ * via SimForwardingService. Only active in sim mode.
  */
 @Service
+@ConditionalOnProperty(name = "app.mode", havingValue = "sim")
 public class DetectorService {
 
     private static final Logger log = LoggerFactory.getLogger(DetectorService.class);
 
-    private final QueueService queueService;
-    private final SignalWebSocketHandler wsHandler;
-    private final SignalGenerator signalGenerator;
-    private final FailoverService failoverService;
-    private final RestTemplate restTemplate;
+    private final SimForwardingService forwardingService;
+    private final @Lazy SignalGenerator signalGenerator;
 
     @Value("${detector.window-width-percent:10}")
     private int windowWidthPercent;
@@ -51,14 +48,10 @@ public class DetectorService {
 
     record DetectRequest(List<SignalBlock> blocks, long timestamp) {}
 
-    public DetectorService(QueueService queueService, SignalWebSocketHandler wsHandler,
-                           @Lazy SignalGenerator signalGenerator, FailoverService failoverService,
-                           RestTemplate restTemplate) {
-        this.queueService = queueService;
-        this.wsHandler = wsHandler;
+    public DetectorService(SimForwardingService forwardingService,
+                           @Lazy SignalGenerator signalGenerator) {
+        this.forwardingService = forwardingService;
         this.signalGenerator = signalGenerator;
-        this.failoverService = failoverService;
-        this.restTemplate = restTemplate;
     }
 
     @PostConstruct
@@ -130,23 +123,12 @@ public class DetectorService {
             }
         }
 
-        // Batch publish to local Redis
+        // Forward detected entities to all queue instances
         if (!newEntities.isEmpty()) {
             try {
-                queueService.publishBatch(newEntities);
+                forwardingService.forwardDetectedEntities(newEntities);
             } catch (Exception e) {
-                log.warn("Batch publish failed: {}", e.getMessage());
-            }
-
-            // Forward to peer if active
-            if (failoverService.isActive()) {
-                try {
-                    restTemplate.postForObject(
-                            failoverService.getPeerUrl() + "/api/sync/entities",
-                            newEntities, Map.class);
-                } catch (Exception e) {
-                    log.debug("Peer entity forward failed: {}", e.getMessage());
-                }
+                log.warn("Entity forward failed: {}", e.getMessage());
             }
         }
 
@@ -154,7 +136,9 @@ public class DetectorService {
         if (windowPosition + windowWidth > maxWidth) {
             windowPosition = 0;
         }
-        wsHandler.broadcast("detector", Map.of(
+
+        // Forward detector state to all queue instances
+        forwardingService.forwardDetector(Map.of(
                 "position", windowPosition,
                 "width", windowWidth,
                 "timeWindowMs", timeWindowMs
@@ -171,7 +155,8 @@ public class DetectorService {
         });
         endedBlocks.forEach(blockToEntity::remove);
 
-        wsHandler.broadcast("entities", activeEntities.values());
+        // Forward entity count to all queue instances
+        forwardingService.forwardEntityCount(activeEntities.values());
     }
 
     public double getWindowPosition() { return windowPosition; }

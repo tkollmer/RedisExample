@@ -4,6 +4,7 @@ import com.df.queue.web.SignalWebSocketHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -18,6 +19,7 @@ import java.util.concurrent.TimeUnit;
  * Supports both Redis containers and app containers (with active/standby roles).
  */
 @Service
+@ConditionalOnProperty(name = "app.mode", havingValue = "queue", matchIfMissing = true)
 public class RedisStatusService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisStatusService.class);
@@ -25,7 +27,7 @@ public class RedisStatusService {
     private final SignalWebSocketHandler wsHandler;
     private final RestTemplate restTemplate;
 
-    @Value("${redis.nodes:redis-a,redis-b,app-a,app-b}")
+    @Value("${redis.nodes:sim,app-a,redis-a,app-b,redis-b}")
     private String nodesCsv;
 
     public RedisStatusService(SignalWebSocketHandler wsHandler, RestTemplate restTemplate) {
@@ -76,11 +78,26 @@ public class RedisStatusService {
 
         Boolean running = (Boolean) info.get("running");
 
+        // For sim container, check health
+        if (containerName.equals("sim")) {
+            if (running != null && running) {
+                try {
+                    Map<String, Object> health = restTemplate.getForObject(
+                            "http://localhost:8082/api/health", Map.class);
+                    info.put("role", health != null ? "sim" : "unknown");
+                } catch (Exception e) {
+                    info.put("role", "starting");
+                }
+            } else {
+                info.put("role", "down");
+            }
+            return info;
+        }
+
         // For app containers, determine role via health endpoint
         if (containerName.startsWith("app-")) {
             if (running != null && running) {
                 try {
-                    // Determine port: app-a=8080, app-b=8081
                     int port = containerName.equals("app-a") ? 8080 : 8081;
                     Map<String, Object> health = restTemplate.getForObject(
                             "http://localhost:" + port + "/api/health", Map.class);

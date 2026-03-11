@@ -1,6 +1,7 @@
 package com.df.queue.service;
 
 import com.df.queue.web.SignalWebSocketHandler;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -15,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * delta in entity count and derives entities/sec. Thread-safe via {@link AtomicLong}.
  */
 @Service
+@ConditionalOnProperty(name = "app.mode", havingValue = "queue", matchIfMissing = true)
 public class ThroughputService {
 
     private final SignalWebSocketHandler wsHandler;
